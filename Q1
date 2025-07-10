@@ -1,0 +1,6 @@
+Pre-processing
+```{r}
+data <- read.csv("BankChurners.csv")
+missing_values <- data.frame(sapply(data, function(x) is.na(x)))
+missing_values
+```
