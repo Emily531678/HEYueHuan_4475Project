@@ -1,0 +1,161 @@
+```{r}
+require(tidyverse)
+require(data.table)
+require(randomForest)
+require(mclust)
+require(rpart)
+require(rpart.plot)
+require(foreign)
+require(e1071)
+```
+Selection
+#Data Source
+#https://www.kaggle.com/datasets/whenamancodes/credit-card-customers-prediction
+
+Pre-processing
+```{r}
+data <- read.csv("BankChurners.csv")
+missing_values <- data.frame(sapply(data, function(x) is.na(x)))
+missing_values
+```
+
+Excellent: 0-10% utilization
+Good: 10-30% utilization
+Fair: 30-50% utilization
+Poor: 50% or higher utilization
+Transformation
+```{r}
+Transform <- data
+Transform <- transform(Transform,
+  Util_Rank = ifelse(
+    Avg_Utilization_Ratio <= 0.10, "Excellent",
+    ifelse(
+      Avg_Utilization_Ratio <= 0.30, "Good",
+      ifelse(
+        Avg_Utilization_Ratio <= 0.50, "Fair",
+        "Poor"
+      )
+    )
+  )
+)
+
+Transform[c("Avg_Utilization_Ratio", "Util_Rank")]
+```
+
+Descriptive Analysis
+Question1 - Basic Aggregration
+```{r}
+#Summarise the average credit limit by different card type
+avg_credit_by_card <- summarise(
+  group_by(data, Card_Category),
+  Avg_Credit_Limit = mean(Credit_Limit)
+)
+avg_credit_by_card
+#count the number of different education level
+education_count <- as.data.frame(table(data$Education_Level))
+colnames(education_count) <- c("Education_Level", "Count")
+education_count
+#Summaries Average of Open to buy all Income Category
+avg_otp_df <- data.frame(
+  Income_Category = names(sort(tapply(data$Avg_Open_To_Buy, 
+                                    data$Income_Category, 
+                                    mean), 
+                             decreasing = TRUE)),
+  Avg_OTP = sort(tapply(data$Avg_Open_To_Buy, 
+                       data$Income_Category, 
+                       mean), 
+                decreasing = TRUE)
+)
+
+avg_otp_df
+```
+
+Question2 - Basic statics (Bar)
+```{r}
+barplot(avg_otp_df$Avg_OTP,
+        names.arg = avg_otp_df$Income_Category,
+        col = "grey",
+        xlab = "Income Category",
+        ylab = "Average Open to Buy",
+        cex.names = 0.8
+)
+```
+
+Question3 - Basic statics (pie)
+```{r}
+pie(education_count$Count,
+    labels = education_count$Education_Level,
+    main = "Proportion of Education Levels")
+```
+
+Question4 - Relation(scatter)
+```{r}
+plot(data$Total_Trans_Amt, data$Total_Trans_Ct,
+     xlab = "Transform$Total_Trans_Amt",
+     ylab = "TransformTotal_Trans_Ct")
+abline(lm(Total_Trans_Ct ~ Total_Trans_Amt, data = data), 
+       col = "red")
+  
+```
+https://www.digitalocean.com/community/tutorials/normalize-data-in-r
+https://stats.stackexchange.com/questions/298507/mclust-model-names-corresponding-to-common-models-i-e-those-used-for-lpa-lc
+Modelname EEE = Equal variances and equal covariances
+if you want to make the clustering like a matrix, try to use modelname EEE
+Question5 - Clustering
+```{r}
+cluster_data <- data[, c("Total_Trans_Ct", "Customer_Age")]  
+
+fit <- Mclust(cluster_data, G = 4)
+
+plot(fit, what = "classification",
+     xlab = "Transform.Total_Trans_Ct",  
+     ylab = "Transform.Customer_Age",    
+     xlim = c(20, 140),      
+     ylim = c(30, 70),
+     pch = 16,            
+     cex = 0.8)
+```
+
+Question6 - pattern finding(CART tree)
+```{r}
+Tree <- rpart(Util_Rank ~ Total_Revolving_Bal + Income_Category,
+              data = Transform,
+              method = "class")
+rpart.plot(Tree)
+```
+
+Question7 - classification(Naive Bias)
+```{r}
+#NB Classification
+nb_model <- naiveBayes(Util_Rank ~ Customer_Age + Credit_Limit + Total_Trans_Ct, 
+                      data = Transform)
+
+#new customers
+new_customers <- read.csv("new_customer.csv")
+
+#make an enquiry
+predict(nb_model, newdata = new_customers)
+predict
+```
+
+Question8 - Prediction/simulation (random Forest)
+```{r}
+#model building
+set.seed(123)  
+train_index <- sample(1:nrow(Transform), 0.7 * nrow(Transform))
+train <- Transform[train_index, ]
+test <- Transform[-train_index, ]
+
+#model testing
+rf_model <- randomForest(
+  Credit_Limit ~ Months_on_book,
+  data = train,  
+  ntree = 500          
+)
+
+#new customer
+new_customers <- read.csv("new_customer.csv") 
+
+#choose one row data for testing
+predict(rf_model, new_customers)  
+```
